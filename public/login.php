@@ -2,9 +2,8 @@
 session_start();
 require_once '../config/database.php';
 
-// --- HANDLE API REQUESTS FIRST ---
-// This block will run if the request is from your desktop app
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['username'])) {
+// --- HANDLE API REQUESTS (Desktop App) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'])) {
     header('Content-Type: application/json');
     $username = trim($_POST['username']);
     $password = $_POST['password'];
@@ -40,17 +39,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['username'])) {
     }
     $stmt->close();
     $conn->close();
-    exit(); // Stop the script here for API calls
+    exit();
 }
 
-// --- HANDLE BROWSER USERS ---
-// This part will only run for users visiting the page in a web browser
+// --- HANDLE BROWSER LOGIN ---
+$error_message = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username_web'])) {
+    $username = trim($_POST['username_web']);
+    $password = $_POST['password_web'];
+
+    if (empty($username) || empty($password)) {
+        $error_message = "Username and password are required.";
+    } else {
+        $sql = "SELECT * FROM users WHERE username = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 1) {
+            $user = $result->fetch_assoc();
+            if ($user['status'] === 'terminated') {
+                $error_message = "Your account has been terminated by your manager.";
+            } elseif (password_verify($password, $user['password'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['role'] = $user['role'];
+                header("Location: dashboard.php");
+                exit();
+            } else {
+                $error_message = "Invalid username or password.";
+            }
+        } else {
+            $error_message = "Invalid username or password.";
+        }
+        $stmt->close();
+    }
+}
+
+// Redirect if already logged in via browser
 if (isset($_SESSION['user_id'])) {
     header("Location: dashboard.php");
     exit();
 }
-
-$error_message = ''; // For displaying errors on the HTML form
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -63,6 +94,9 @@ $error_message = ''; // For displaying errors on the HTML form
 <body>
     <div class="form-container">
         <h1>Login</h1>
+        <?php if (!empty($error_message)): ?>
+            <div class="message error"><?php echo $error_message; ?></div>
+        <?php endif; ?>
         <form action="login.php" method="POST">
             <div class="form-group">
                 <label for="username_web">Username</label>
